@@ -385,6 +385,8 @@ pub trait ABIMachineSpec {
         }
     }
 
+    fn callee_saved_regs() -> Vec<(Reg, ir::Type)>;
+
     /// Returns word register class.
     fn word_reg_class() -> RegClass {
         RegClass::Int
@@ -1012,6 +1014,7 @@ pub struct FrameLayout {
     /// bottom of this area.
     pub outgoing_args_size: u32,
 
+    // FIXME
     /// Sorted list of callee-saved registers that are clobbered
     /// according to the ABI.  These registers will be saved and
     /// restored by gen_clobber_save and gen_clobber_restore.
@@ -1037,6 +1040,9 @@ pub struct Callee<M: ABIMachineSpec> {
     /// Register-argument defs, to be provided to the `args`
     /// pseudo-inst, and pregs to constrain them to.
     reg_args: Vec<ArgPair>,
+    /// Callee-saved registers, to be provided to both `args`
+    /// and `rets` pseudo-insts.
+    pub callee_saved: Vec<ArgPair>,
     /// Clobbered registers, from regalloc.
     clobbered: Vec<Writable<RealReg>>,
     /// Total number of spillslots, including for 'dynamic' types, from regalloc.
@@ -1197,6 +1203,7 @@ impl<M: ABIMachineSpec> Callee<M> {
             stackslots_size,
             outgoing_args_size: 0,
             reg_args: vec![],
+            callee_saved: vec![],
             clobbered: vec![],
             spillslots: None,
             frame_layout: None,
@@ -1210,6 +1217,22 @@ impl<M: ABIMachineSpec> Callee<M> {
             probestack_min_frame,
             _mach: PhantomData,
         })
+    }
+
+    pub fn allocate_callee_saved(&mut self, vregs: &mut VRegAllocator<M::I>) {
+        self.callee_saved.clear();
+
+        self.callee_saved
+            .extend(M::callee_saved_regs().iter().map(|(preg, ty)| {
+                let vreg = vregs.alloc_with_deferred_error(*ty).only_reg().unwrap();
+
+                ArgPair {
+                    vreg: Writable::from_reg(vreg),
+                    preg: *preg,
+                }
+            }));
+
+        self.reg_args.extend(self.callee_saved.clone());
     }
 
     /// Inserts instructions necessary for checking the stack limit into the
@@ -1486,6 +1509,7 @@ impl<M: ABIMachineSpec> Callee<M> {
         vregs: &mut VRegAllocator<M::I>,
     ) -> SmallInstVec<M::I> {
         let mut insts = smallvec![];
+
         let mut copy_arg_slot_to_reg = |slot: &ABIArgSlot, into_reg: &Writable<Reg>| {
             match slot {
                 &ABIArgSlot::Reg { reg, .. } => {
@@ -1604,6 +1628,7 @@ impl<M: ABIMachineSpec> Callee<M> {
     ) -> (SmallVec<[RetPair; 2]>, SmallInstVec<M::I>) {
         let mut reg_pairs = smallvec![];
         let mut ret = smallvec![];
+
         let word_bits = M::word_bits() as u8;
         match &sigs.rets(self.sig)[idx] {
             &ABIArg::Slots { ref slots, .. } => {
@@ -1913,11 +1938,11 @@ impl<M: ABIMachineSpec> Callee<M> {
         }
 
         // Save clobbered registers.
-        insts.extend(M::gen_clobber_save(
-            self.call_conv,
-            &self.flags,
-            &frame_layout,
-        ));
+        // insts.extend(M::gen_clobber_save(
+        //     self.call_conv,
+        //     &self.flags,
+        //     &frame_layout,
+        // ));
 
         // N.B.: "nominal SP", which we use to refer to stackslots and
         // spillslots, is defined to be equal to the stack pointer at this point
@@ -1943,11 +1968,11 @@ impl<M: ABIMachineSpec> Callee<M> {
         let mut insts = smallvec![];
 
         // Restore clobbered registers.
-        insts.extend(M::gen_clobber_restore(
-            self.call_conv,
-            &self.flags,
-            &frame_layout,
-        ));
+        // insts.extend(M::gen_clobber_restore(
+        //     self.call_conv,
+        //     &self.flags,
+        //     &frame_layout,
+        // ));
 
         // N.B.: we do *not* emit a nominal SP adjustment here, because (i) there will be no
         // references to nominal SP offsets before the return below, and (ii) the instruction

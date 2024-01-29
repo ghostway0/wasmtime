@@ -102,6 +102,18 @@ impl ABIMachineSpec for X64ABIMachineSpec {
         16
     }
 
+    fn callee_saved_regs() -> Vec<(Reg, ir::Type)> {
+        vec![
+            (regs::r12(), Self::word_type()),
+            (regs::r13(), Self::word_type()),
+            (regs::r14(), Self::word_type()),
+            (regs::r15(), Self::word_type()),
+            (regs::rbx(), Self::word_type()),
+            (regs::rsp(), Self::word_type()),
+            (regs::rbp(), Self::word_type()),
+        ]
+    }
+
     fn compute_arg_locs<'a, I>(
         call_conv: isa::CallConv,
         flags: &settings::Flags,

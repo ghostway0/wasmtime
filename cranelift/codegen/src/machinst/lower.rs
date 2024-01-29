@@ -17,7 +17,7 @@ use crate::ir::{
 use crate::machinst::{
     writable_value_regs, BlockIndex, BlockLoweringOrder, Callee, InsnIndex, LoweredBlock,
     MachLabel, Reg, SigSet, VCode, VCodeBuilder, VCodeConstant, VCodeConstantData, VCodeConstants,
-    VCodeInst, ValueRegs, Writable,
+    VCodeInst, ValueRegs, Writable, ArgPair,
 };
 use crate::settings::Flags;
 use crate::{trace, CodegenResult};
@@ -26,7 +26,7 @@ use cranelift_control::ControlPlane;
 use smallvec::{smallvec, SmallVec};
 use std::fmt::Debug;
 
-use super::{VCodeBuildDirection, VRegAllocator};
+use super::{ABIMachineSpec, RetPair, VCodeBuildDirection, VRegAllocator};
 
 /// A vector of ValueRegs, used to represent the outputs of an instruction.
 pub type InstOutput = SmallVec<[ValueRegs<Reg>; 2]>;
@@ -610,6 +610,10 @@ impl<'func, I: VCodeInst> Lower<'func, I> {
                     self.emit(insn);
                 }
             }
+
+
+            self.vcode.vcode.abi.allocate_callee_saved(&mut self.vregs);
+
             if let Some(insn) = self
                 .vcode
                 .vcode
@@ -661,6 +665,11 @@ impl<'func, I: VCodeInst> Lower<'func, I> {
                 self.emit(insn);
             }
         }
+
+        out_rets.extend(self.vcode.abi().callee_saved.iter().map(|pair| RetPair {
+            vreg: pair.vreg.to_reg(),
+            preg: pair.preg,
+        }));
 
         // Hack: generate a virtual instruction that uses vmctx in
         // order to keep it alive for the duration of the function,
